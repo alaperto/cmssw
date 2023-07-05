@@ -697,37 +697,34 @@ void TrackerMap::drawModule(TmModule *mod, int key, int mlay, bool print_total, 
     vals = 0;  //Avoid nan values
   std::string nams = mod->name;
 
-  //Format TH2Poly bin name = short_name_(detId)_FED
+  //Format TH2Poly bin name = name_(detId)_FED
   //Original name = TOB- Layer 5 Rod 61 Module 6 r-phi (436295608) connected to 0 413/48 1 413/49 2 413/50 (3)^C
-  //Bin name = TOB-_L_5_R_61_M_6_(436295608)_413
-  nams.erase(std::remove_if(nams.begin(), nams.end(), [](char c) { return std::islower(c); }), nams.end());
-  size_t found = nams.find('/');
-  if (found != std::string::npos) {
-    nams.erase(found, nams.length() - found);
-  } else {
-    found = nams.find(')');
-    nams.erase(found + 1, nams.length() - found);
+  //Bin name = TOB-_Layer_5_Rod_61_Module_6_r-phi_(436295608)_FED_413
+  //If module is not connected anymore (no FED info available) --> )_uncabled
+  std::string detID;
+  size_t openBra = nams.find('(');
+  size_t closBra = nams.find(')');
+  if (closBra != std::string::npos) {
+    detID = nams.substr(openBra + 1, closBra - openBra - 1);
+    size_t slash = nams.find('/');
+    if (slash != std::string::npos) {
+      std::string fedz = nams.substr(closBra + 1, slash - closBra - 1);
+      nams.erase(slash, nams.length() - slash);
+      fedz.erase(std::remove_if(fedz.begin(), fedz.end(), [](char c) { return std::islower(c); }), fedz.end());
+      nams.erase(closBra + 1, nams.length() - closBra);
+      nams = nams + fedz;
+      nams.erase(closBra + 1, 4);
+      nams.replace(closBra, 1, ") FED");
+    } else {
+      nams.erase(closBra + 1, nams.length() - closBra);
+      nams.replace(closBra, 1, ") uncabled");
+    }
   }
-  found = nams.find(")   ");
-  while (found != std::string::npos) {
-    nams.erase(found + 1, 4);
-    found = nams.find(")   ", found);
-  }
-  found = nams.find(" -");
-  while (found != std::string::npos) {
-    nams.erase(found, 2);
-    found = nams.find(" -", found);
-  }
-  found = nams.find("   ");
-  while (found != std::string::npos) {
-    nams.erase(found, 2);
-    found = nams.find("   ", found);
-  }
-  found = nams.find("  ");
-  while (found != std::string::npos) {
-    nams.erase(found, 1);
-    found = nams.find("  ", found);
-  }
+  //std::cout << nams << std::endl;
+  //Comment next line to have template .root file with full name
+  nams = detID;
+
+  //Remove free spaces in the name
   std::replace_if(
       nams.begin(), nams.end(), [](char c) { return c == ' '; }, '_');
 
@@ -855,7 +852,7 @@ void TrackerMap::save(bool print_total, float minval, float maxval, std::string 
     //outputfilename.erase(outputfilename.begin()+outputfilename.find("."),outputfilename.end());
     temporary_file = true;
 
-    //Dev option to produce only one plot
+    //Option to produce only one .root plot
     //if(outputfilename != "StoNCorrOnTrack")
     //  return;
 
@@ -1023,6 +1020,13 @@ void TrackerMap::save(bool print_total, float minval, float maxval, std::string 
       StripMap->SetStats(false);
       int siterator = 0;
 
+      //true: template root only, no .jsroot text file
+      //false: no .root files, only .jsroot text files
+      bool templateRoot = false;
+      //Create .jsroot text file
+      std::string textfilename = outputfilename + ".jsroot";
+      std::ofstream textfile(textfilename.c_str(), std::ios::out);
+
       while (!tempfile.eof()) {  //create polylines
         siterator++;
         //Get TH2Poly bin name and content from temporary .coor file
@@ -1042,15 +1046,24 @@ void TrackerMap::save(bool print_total, float minval, float maxval, std::string 
           //Fill only 15145 TH2Poly bins (Strip only), instead of 16588 bins (Pixel+Strip, old)
           if ((siterator >= 1 && siterator <= 3608) || (siterator >= 4281 && siterator <= 7888) ||
               (siterator >= 8657 && siterator <= 16588)) {
-            bin->SetName(named.c_str());
-            StripMap->AddBin(bin);
-            StripMap->Fill(named.c_str(), content);
+            if (templateRoot) {
+              //Empty TH2Poly bins (content = 0) as .root template
+              content = 0;
+              //Fill TH2Poly bin
+              bin->SetName(named.c_str());
+              StripMap->AddBin(bin);
+              StripMap->Fill(named.c_str(), content);
+            } else {
+              //Fill text file
+              textfile << named << " " << content << std::endl;
+            }
           }
 
           pline->SetLineWidth(0);
           pline->Draw("f");
         }
       }
+
       if (printflag) {
         float lminvalue = minvalue;
         float lmaxvalue = maxvalue;
@@ -1168,67 +1181,74 @@ void TrackerMap::save(bool print_total, float minval, float maxval, std::string 
       delete MyC;
       delete MyL;
 
-      //Canvas name = MyT for both Pixel and Strip Tracker Maps
-      TCanvas *MyT = new TCanvas("MyT", "MyT", 3500, 1500);
-      //gPad->SetFillColor(38);//Fill pad
-      StripMap->SetLineColor(kBlack);
-      StripMap->SetLineWidth(0);
-      StripMap->Draw("AL COLZ");
-      MyT->Update();
+      //Create Canvas, draw TH2Poly and save as .root (only for .root template file)
+      if (templateRoot) {
+        //Canvas name = MyT for both Pixel and Strip Tracker Maps
+        TCanvas *MyT = new TCanvas("MyT", "MyT", 3500, 1500);
+        //gPad->SetFillColor(38);//Fill pad
+        StripMap->SetLineColor(kBlack);
+        StripMap->SetLineWidth(0);
+        StripMap->Draw("AL COLZ");
+        MyT->Update();
 
-      //Rainbow palette, fix pad margin and palette position
-      gStyle->SetPalette(kRainBow);
-      TPaletteAxis *realPalette = (TPaletteAxis *)StripMap->GetListOfFunctions()->FindObject("palette");
-      realPalette->SetX1NDC(0.92);
-      realPalette->SetX2NDC(0.94);
-      realPalette->SetY1NDC(0.02);
-      realPalette->SetY2NDC(0.91);
-      gPad->SetRightMargin(0.08);
-      gPad->SetLeftMargin(0.01);
-      gPad->SetTopMargin(0.09);
-      gPad->SetBottomMargin(0.02);
-      gPad->Update();
+        //Rainbow palette, fix pad margin and palette position
+        gStyle->SetPalette(kRainBow);
+        TPaletteAxis *realPalette = (TPaletteAxis *)StripMap->GetListOfFunctions()->FindObject("palette");
+        realPalette->SetX1NDC(0.92);
+        realPalette->SetX2NDC(0.94);
+        realPalette->SetY1NDC(0.02);
+        realPalette->SetY2NDC(0.91);
+        gPad->SetRightMargin(0.08);
+        gPad->SetLeftMargin(0.01);
+        gPad->SetTopMargin(0.09);
+        gPad->SetBottomMargin(0.02);
+        gPad->Update();
 
-      //Fill pad with text and arrows
-      TLatex l2;
-      l2.SetTextSize(0.06);
-      std::string runnumber;
-      for (char c : title)
-        if (std::isdigit(c))
-          runnumber.push_back(c);
-      std::string striptitle = "Run " + runnumber + ": Strip " + outputfilename;
-      l2.DrawLatex(800, 1380, striptitle.c_str());
-      l2.SetTextSize(0.05);
-      l2.DrawLatex(1200, 40, "-z");
-      l2.DrawLatex(1200, 1300, "+z");
-      l2.DrawLatex(1085, 310, "TIB L1");
-      l2.DrawLatex(1085, 1000, "TIB L2");
-      l2.DrawLatex(1585, 310, "TIB L3");
-      l2.DrawLatex(1585, 1000, "TIB L4");
-      l2.DrawLatex(2085, 310, "TOB L1");
-      l2.DrawLatex(2085, 1000, "TOB L2");
-      l2.DrawLatex(2585, 310, "TOB L3");
-      l2.DrawLatex(2585, 1000, "TOB L4");
-      l2.DrawLatex(3085, 310, "TOB L5");
-      l2.DrawLatex(3085, 1000, "TOB L6");
-      l2.DrawLatex(3460, 1320, "x");
-      l2.DrawLatex(3315, 1210, "y");
-      l2.DrawLatex(3510, 667, "z");
-      l2.DrawLatex(3023, 530, "#Phi");
-      arx.SetY2(1320);
-      ary.SetX2(3320);
-      arz.SetX1(3490);
-      arz.SetX2(3490);
-      arphi.SetX1(3490);
-      arx.Draw();
-      ary.Draw();
-      arz.Draw();
-      arphi.Draw();
-      MyT->Update();
+        //Fill pad with text and arrows
+        TLatex l2;
+        l2.SetTextSize(0.06);
+        std::string runnumber;
+        for (char c : title)
+          if (std::isdigit(c))
+            runnumber.push_back(c);
+        std::string striptitle = "Run " + runnumber + ": Strip " + outputfilename;
+        l2.DrawLatex(800, 1380, striptitle.c_str());
+        l2.SetTextSize(0.05);
+        l2.DrawLatex(1200, 40, "-z");
+        l2.DrawLatex(1200, 1300, "+z");
+        l2.DrawLatex(950, 1280, "TID");
+        l2.DrawLatex(2180, 1295, "TEC");
+        l2.DrawLatex(950, 35, "TID");
+        l2.DrawLatex(2180, 5, "TEC");
+        l2.DrawLatex(1085, 310, "TIB L1");
+        l2.DrawLatex(1085, 1000, "TIB L2");
+        l2.DrawLatex(1585, 310, "TIB L3");
+        l2.DrawLatex(1585, 1000, "TIB L4");
+        l2.DrawLatex(2085, 310, "TOB L1");
+        l2.DrawLatex(2085, 1000, "TOB L2");
+        l2.DrawLatex(2585, 310, "TOB L3");
+        l2.DrawLatex(2585, 1000, "TOB L4");
+        l2.DrawLatex(3085, 310, "TOB L5");
+        l2.DrawLatex(3085, 1000, "TOB L6");
+        l2.DrawLatex(3460, 1310, "x");
+        l2.DrawLatex(3410, 1150, "y");
+        l2.DrawLatex(3510, 667, "z");
+        l2.DrawLatex(3023, 530, "#Phi");
+        arx.SetY2(1320);
+        ary.SetX2(3320);
+        arz.SetX1(3490);
+        arz.SetX2(3490);
+        arphi.SetX1(3490);
+        arx.Draw();
+        ary.Draw();
+        arz.Draw();
+        arphi.Draw();
+        MyT->Update();
 
-      std::string filename = outputfilename + ".root";
-      MyT->Print(filename.c_str());
-      delete MyT;
+        std::string filename = outputfilename + ".root";
+        MyT->Print(filename.c_str());
+        delete MyT;
+      }
 
       if (printflag)
         delete axis;
