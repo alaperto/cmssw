@@ -403,6 +403,10 @@ class TH2PolyOfflineMaps:
       # print(monitoredValues)
       break
     
+    #True: template root only, no .jsroot text file
+    #False: no .root files, only .jsroot text files
+    templateRoot = False
+
     if os.path.exists(self.outputDirName) == False: # check whether directory exists
       os.system("mkdir " + self.outputDirName)
     
@@ -430,12 +434,16 @@ class TH2PolyOfflineMaps:
         nameId = ""
 
         for detId in self.internalData:
-          val = (self.internalData[detId])[mv]
+          #Empty TH2Poly bins in template .root
+          if(templateRoot):
+            val = 0
+          else:
+            val = (self.internalData[detId])[mv]
+
           onlineName = self.rawToOnlineDict[detId]
           listOfVals.append([val, detId, onlineName])
           #New TH2Poly bin ID = full_name_(detId)
           nameId = str(onlineName)+"_("+str(detId)+")"
-
           if applyAbsValue:
              currentHist.Fill(str(nameId), abs(val))
           else:
@@ -523,55 +531,67 @@ class TH2PolyOfflineMaps:
         #save to the png
         c1.Print(self.outputDirName + mv + ".png")
 
-        #Clean canvas, change settings, save as root
-        c1.Clear()
-        c1.SetLogz(False)
-        currentHist.GetZaxis().UnZoom()
-        currentHist.SetLineColor(kBlack)
-        currentHist.Draw("AL COLZ")
-        currentHist.GetXaxis().SetRangeUser(-10,155)
+        #Fill Canvas with TH2Poly only for .root template
+        if(templateRoot):
+          #Clean canvas, change settings, save as root
+          c1.Clear()
+          c1.SetLogz(False)
+          currentHist.GetZaxis().UnZoom()
+          currentHist.SetLineColor(kBlack)
+          currentHist.Draw("AL COLZ")
+          currentHist.GetXaxis().SetRangeUser(-10,155)
 
-        palette.SetX1NDC(0.92);
-        palette.SetX2NDC(0.94);
-        palette.SetY1NDC(0.02);
-        palette.SetY2NDC(0.91);
-        gPad.SetRightMargin(0.08);
-        gPad.SetLeftMargin(0.01);
-        gPad.SetTopMargin(0.09);
-        gPad.SetBottomMargin(0.02);
-        gPad.Update()
+          palette.SetX1NDC(0.92);
+          palette.SetX2NDC(0.94);
+          palette.SetY1NDC(0.02);
+          palette.SetY2NDC(0.91);
+          gPad.SetRightMargin(0.08);
+          gPad.SetLeftMargin(0.01);
+          gPad.SetTopMargin(0.09);
+          gPad.SetBottomMargin(0.02);
+          gPad.Update()
 
-        zarrow = TArrow(0, 27, 0, -30, 0.02, "|>")
-        zarrow.SetLineWidth(3)
-        zarrow.Draw()
-        phiArrow.SetLineWidth(3)
-        phiArrow.Draw()
-        xArrow.SetLineWidth(3)
-        xArrow.Draw()
-        yArrow.SetLineWidth(3)
-        yArrow.Draw()
+          zarrow = TArrow(0, 27, 0, -30, 0.02, "|>")
+          zarrow.SetLineWidth(3)
+          zarrow.Draw()
+          phiArrow.SetLineWidth(3)
+          phiArrow.Draw()
+          xArrow.SetLineWidth(3)
+          xArrow.Draw()
+          yArrow.SetLineWidth(3)
+          yArrow.Draw()
 
-        txt.Clear()
-        txt.SetTextAngle(0)
-        txt.SetTextSize(0.05)
-        PixelTitle = "Run " + self.runNumber + ": Pixel " + mv
-        txt.DrawLatex(0.5, 0.95, PixelTitle)
+          txt.Clear()
+          txt.SetTextAngle(0)
+          txt.SetTextSize(0.05)
+          PixelTitle = "Run " + self.runNumber + ": Pixel " + mv
+          txt.DrawLatex(0.5, 0.95, PixelTitle)
 
-        txt.SetTextSize(0.04)
-        txt.SetNDC(False)
-        txt.DrawLatex(75, -65, "-DISK")
-        txt.DrawLatex(75, 65, "+DISK")
-        txt.DrawLatex(50, -60, "NUMBER ->")
+          txt.SetTextSize(0.04)
+          txt.SetNDC(False)
+          txt.DrawLatex(75, -65, "-DISK")
+          txt.DrawLatex(75, 65, "+DISK")
+          txt.DrawLatex(50, -60, "NUMBER ->")
 
-        txt.DrawLatex(-5, -20, "+z")
-        txt.DrawLatex(35, 30, "+phi")
-        txt.DrawLatex(55, 45, "+x")
-        txt.DrawLatex(30, 65, "+y")
+          txt.DrawLatex(-5, -20, "+z")
+          txt.DrawLatex(35, 30, "+phi")
+          txt.DrawLatex(55, 45, "+x")
+          txt.DrawLatex(30, 65, "+y")
 
-        txt.SetTextAngle(90)
-        txt.DrawLatex(-5, 0, "BARREL")
+          txt.SetTextAngle(90)
+          txt.DrawLatex(-5, 0, "BARREL")
 
-        c1.SaveAs(self.outputDirName + mv + ".root")
+          c1.SaveAs(self.outputDirName + mv + ".root")
+        else:
+          #Create and fill .jsroot text file
+          textfile = open(self.outputDirName + mv + ".jsroot", 'w')
+          for i in range(currentHist.GetNumberOfBins()):
+            fullName = str(currentHist.GetBinName(i+1))
+            startNum = fullName.index('(') + 1
+            endNum = fullName.index(')')
+            textfile.write(str(fullName[startNum:endNum]) + ' ' + str(currentHist.GetBinContent(i+1)) + '\n')
+          textfile.close()
+
         c1.Close()
 
   def __del__(self):
